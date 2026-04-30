@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\ApiResponse;
 use App\Http\Resources\BillingCycleResource;
 use App\Models\BillingCycle;
+use App\Models\Client;
 use App\Models\Invoice;
 use App\Services\InvoiceGenerationService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class BillingCycleController extends Controller
@@ -15,6 +17,103 @@ class BillingCycleController extends Controller
     public function __construct()
     {
         $this->middleware('auth:sanctum');
+    }
+
+    /**
+     * Preview invoices that would be generated for next cycle (dry run)
+     * GET /api/billing-cycles/next/preview-generation
+     */
+    public function previewNextGeneration(Request $request)
+    {
+        $now = now('Asia/Jakarta');
+        $target = $now->copy()->startOfMonth();
+
+        if ((int) $now->day > 1) {
+            $target = $target->addMonth();
+        }
+
+        $year = (int) $target->year;
+        $month = (int) $target->month;
+
+        $existingCycle = BillingCycle::query()->where('year', $year)->where('month', $month)->first();
+
+        $baseAmount = 1000000.0;
+        $taxRate = 0.11;
+        $perInvoiceSubtotal = $baseAmount;
+        $perInvoiceTax = $baseAmount * $taxRate;
+        $perInvoiceTotal = $perInvoiceSubtotal + $perInvoiceTax;
+
+        $query = Client::query()
+            ->where('is_active', true)
+            ->whereDoesntHave('invoices', function ($q) use ($existingCycle, $year, $month) {
+                $q->where('invoice_type', Invoice::TYPE_MONTHLY)
+                    ->when($existingCycle, function ($sub) use ($existingCycle) {
+                        $sub->where('billing_cycle_id', $existingCycle->id);
+                    }, function ($sub) use ($year, $month) {
+                        $sub->whereHas('billingCycle', function ($cycleQuery) use ($year, $month) {
+                            $cycleQuery->where('year', $year)->where('month', $month);
+                        });
+                    });
+            });
+
+        if ($search = trim((string) $request->query('q', ''))) {
+            $query->where(function ($sub) use ($search) {
+                $sub->where('name', 'like', '%'.$search.'%')
+                    ->orWhere('code', 'like', '%'.$search.'%');
+            });
+        }
+
+        $perPage = (int) $request->query('per_page', 50);
+        $perPage = max(1, min($perPage, 500));
+
+        $candidates = $query->orderBy('name')->paginate($perPage);
+        $candidateTotalCount = (int) $candidates->total();
+
+        $rows = collect($candidates->items())->map(function ($client) use ($perInvoiceSubtotal, $perInvoiceTax, $perInvoiceTotal, $year, $month) {
+            return [
+                'client_id' => $client->id,
+                'client_code' => $client->code,
+                'client_name' => $client->name,
+                'currency' => $client->currency,
+                'projected_invoice_number' => sprintf('INV-%s-%04d%02d', strtoupper($client->code), $year, $month),
+                'projected_subtotal' => round($perInvoiceSubtotal, 2),
+                'projected_tax_amount' => round($perInvoiceTax, 2),
+                'projected_total_amount' => round($perInvoiceTotal, 2),
+            ];
+        })->values();
+
+        return ApiResponse::success([
+            'cycle' => [
+                'year' => $year,
+                'month' => $month,
+                'label' => sprintf('%04d-%02d', $year, $month),
+                'cycle_start_date' => $target->copy()->startOfMonth()->toDateString(),
+                'cycle_end_date' => $target->copy()->endOfMonth()->toDateString(),
+                'scheduled_run_at' => $target->copy()->day(1)->setTime(8, 0, 0, 0)->timezone('Asia/Jakarta')->toIso8601String(),
+                'exists_in_db' => (bool) $existingCycle,
+                'billing_cycle_id' => $existingCycle ? $existingCycle->id : null,
+            ],
+            'assumptions' => [
+                'base_amount_per_invoice' => round($perInvoiceSubtotal, 2),
+                'tax_rate' => $taxRate,
+                'tax_amount_per_invoice' => round($perInvoiceTax, 2),
+                'total_per_invoice' => round($perInvoiceTotal, 2),
+            ],
+            'summary' => [
+                'would_generate_count' => $candidateTotalCount,
+                'projected_total_amount' => round($candidateTotalCount * $perInvoiceTotal, 2),
+            ],
+            'candidates' => $rows,
+            'pagination' => [
+                'current_page' => $candidates->currentPage(),
+                'per_page' => $candidates->perPage(),
+                'total' => $candidates->total(),
+                'last_page' => $candidates->lastPage(),
+                'from' => $candidates->firstItem(),
+                'to' => $candidates->lastItem(),
+                'has_more' => $candidates->hasMorePages(),
+            ],
+        ], 'Next cycle generation preview retrieved');
     }
 
     /**

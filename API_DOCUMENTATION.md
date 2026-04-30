@@ -1401,7 +1401,83 @@ curl -X GET https://your-domain.com/api/billing-cycles/1 \
 
 ---
 
-#### 24. Generate Next Billing Cycle
+#### 24. Preview Next Billing Cycle Generation (Dry Run)
+**GET** `/api/billing-cycles/next/preview-generation`
+
+Preview which invoices would be generated for the next billing cycle without creating any invoice records.
+
+This endpoint is read-only and safe for AI agents to test planning scenarios.
+
+**Headers Required:**
+```
+Authorization: Bearer {token}
+```
+
+**Query Parameters:**
+- `page` (optional, integer) - Page number (default: 1)
+- `per_page` (optional, integer) - Results per page (default: 50, max: 500)
+- `q` (optional, string) - Filter clients by code or name
+
+**Success Response (200):**
+```json
+{
+  "success": true,
+  "message": "Next cycle generation preview retrieved",
+  "data": {
+    "cycle": {
+      "year": 2026,
+      "month": 5,
+      "label": "2026-05",
+      "cycle_start_date": "2026-05-01",
+      "cycle_end_date": "2026-05-31",
+      "scheduled_run_at": "2026-05-01T08:00:00+07:00",
+      "exists_in_db": true,
+      "billing_cycle_id": 12
+    },
+    "assumptions": {
+      "base_amount_per_invoice": 1000000,
+      "tax_rate": 0.11,
+      "tax_amount_per_invoice": 110000,
+      "total_per_invoice": 1110000
+    },
+    "summary": {
+      "would_generate_count": 25,
+      "projected_total_amount": 27750000
+    },
+    "candidates": [
+      {
+        "client_id": 4,
+        "client_code": "CLI004",
+        "client_name": "Acme Logistics",
+        "currency": "IDR",
+        "projected_invoice_number": "INV-CLI004-202605",
+        "projected_subtotal": 1000000,
+        "projected_tax_amount": 110000,
+        "projected_total_amount": 1110000
+      }
+    ],
+    "pagination": {
+      "current_page": 1,
+      "per_page": 50,
+      "total": 25,
+      "last_page": 1,
+      "from": 1,
+      "to": 25,
+      "has_more": false
+    }
+  }
+}
+```
+
+**cURL Example:**
+```bash
+curl -X GET "https://your-domain.com/api/billing-cycles/next/preview-generation?per_page=200&q=CLI" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+---
+
+#### 25. Generate Next Billing Cycle
 **POST** `/api/billing-cycles/generate-next`
 
 Generate invoices for all active clients for the next billing cycle.
@@ -1452,7 +1528,7 @@ curl -X POST https://your-domain.com/api/billing-cycles/generate-next \
 
 ---
 
-#### 25. Get Billing Cycle's Invoices
+#### 26. Get Billing Cycle's Invoices
 **GET** `/api/billing-cycles/{id}/invoices`
 
 Retrieve all invoices for a specific billing cycle.
@@ -1499,7 +1575,7 @@ curl -X GET "https://your-domain.com/api/billing-cycles/1/invoices?status=paid" 
 
 ### Payment Record Management Endpoints
 
-#### 26. List All Payment Records
+#### 27. List All Payment Records
 **GET** `/api/payments`
 
 Retrieve paginated list of all payment records.
@@ -1548,7 +1624,7 @@ curl -X GET "https://your-domain.com/api/payments?status=paid&provider=xendit" \
 
 ---
 
-#### 27. Get Single Payment Record
+#### 28. Get Single Payment Record
 **GET** `/api/payments/{id}`
 
 Retrieve detailed information for a specific payment record.
@@ -1590,7 +1666,7 @@ curl -X GET https://your-domain.com/api/payments/1 \
 
 ---
 
-#### 28. Sync Payment with Xendit
+#### 29. Sync Payment with Xendit
 **POST** `/api/payments/{id}/sync-xendit`
 
 Sync a payment record's status with Xendit to get the latest payment status.
@@ -1631,7 +1707,7 @@ curl -X POST https://your-domain.com/api/payments/1/sync-xendit \
 
 ---
 
-#### 29. Get Invoice's Payment Records
+#### 30. Get Invoice's Payment Records
 **GET** `/api/invoices/{invoice_id}/payments`
 
 Retrieve all payment records for a specific invoice.
@@ -1668,7 +1744,7 @@ curl -X GET "https://your-domain.com/api/invoices/1/payments" \
 
 ### Email Log Endpoints
 
-#### 30. List All Email Logs
+#### 31. List All Email Logs
 **GET** `/api/email-logs`
 
 Retrieve paginated list of all email logs.
@@ -1718,7 +1794,7 @@ curl -X GET "https://your-domain.com/api/email-logs?status=sent&from=2024-04-01"
 
 ---
 
-#### 31. Get Invoice's Email Logs
+#### 32. Get Invoice's Email Logs
 **GET** `/api/invoices/{id}/email-logs`
 
 Retrieve all email logs for a specific invoice.
@@ -1756,7 +1832,7 @@ curl -X GET "https://your-domain.com/api/invoices/1/email-logs" \
 
 ### Settings Management Endpoints
 
-#### 32. Get All Settings
+#### 33. Get All Settings
 **GET** `/api/settings`
 
 Retrieve all application settings.
@@ -1798,7 +1874,7 @@ curl -X GET https://your-domain.com/api/settings \
 
 ---
 
-#### 33. Get Specific Setting
+#### 34. Get Specific Setting
 **GET** `/api/settings/{key}`
 
 Retrieve a specific application setting by key.
@@ -1843,7 +1919,7 @@ curl -X GET https://your-domain.com/api/settings/send_mode \
 
 ---
 
-#### 34. Update Settings
+#### 35. Update Settings
 **PUT** `/api/settings`
 
 Update one or multiple application settings.
@@ -1903,7 +1979,7 @@ curl -X PUT https://your-domain.com/api/settings \
 
 ### Bulk Operation Endpoints
 
-#### 35. Send All Ready Invoices
+#### 36. Send All Ready Invoices
 **POST** `/api/bulk/send-all-ready`
 
 Send all invoices that are ready to send to their respective clients.
@@ -1942,7 +2018,7 @@ curl -X POST https://your-domain.com/api/bulk/send-all-ready \
 
 ---
 
-#### 36. Sync All Payment Statuses
+#### 37. Sync All Payment Statuses
 **POST** `/api/bulk/sync-payments`
 
 Sync payment statuses for all invoices with Xendit to get the latest payment information.
@@ -1982,7 +2058,7 @@ curl -X POST https://your-domain.com/api/bulk/sync-payments \
 
 ---
 
-#### 37. Bulk Void Invoices
+#### 38. Bulk Void Invoices
 **POST** `/api/bulk/void-invoices`
 
 Void multiple invoices at once.
@@ -2045,18 +2121,18 @@ curl -X POST https://your-domain.com/api/bulk/void-invoices \
 
 ## API Summary
 
-**Total Endpoints: 37**
+**Total Endpoints: 38**
 
 | Phase | Category | Endpoints | Total |
 |-------|----------|-----------|-------|
 | Phase 1 | Authentication | 4 | 4 |
 | Phase 1 | Client Management | 6 | 10 |
 | Phase 2 | Invoice Management | 11 | 21 |
-| Phase 3 | Billing Cycles | 4 | 25 |
-| Phase 3 | Payment Records | 4 | 29 |
-| Phase 3 | Email Logs | 2 | 31 |
-| Phase 3 | Settings | 3 | 34 |
-| Phase 3 | Bulk Operations | 3 | 37 |
+| Phase 3 | Billing Cycles | 5 | 26 |
+| Phase 3 | Payment Records | 4 | 30 |
+| Phase 3 | Email Logs | 2 | 32 |
+| Phase 3 | Settings | 3 | 35 |
+| Phase 3 | Bulk Operations | 3 | 38 |
 
 ---
 

@@ -61,6 +61,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Billing cycles (Phase 3)
     Route::get('billing-cycles', [\App\Http\Controllers\Api\BillingCycleController::class, 'index'])->name('api.billing-cycles.index');
     Route::get('billing-cycles/{cycle}', [\App\Http\Controllers\Api\BillingCycleController::class, 'show'])->name('api.billing-cycles.show');
+    Route::get('billing-cycles/next/preview-generation', [\App\Http\Controllers\Api\BillingCycleController::class, 'previewNextGeneration'])->name('api.billing-cycles.preview-next-generation');
     Route::post('billing-cycles/generate-next', [\App\Http\Controllers\Api\BillingCycleController::class, 'generateNext'])->name('api.billing-cycles.generate-next');
     Route::get('billing-cycles/{cycle}/invoices', [\App\Http\Controllers\Api\BillingCycleController::class, 'invoices'])->name('api.billing-cycles.invoices');
 
