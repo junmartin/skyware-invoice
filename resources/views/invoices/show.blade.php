@@ -11,6 +11,7 @@
                     <button type="submit" class="btn btn-sm btn-primary">Confirm Draft</button>
                 </form>
             @endif
+            <a href="{{ route('invoices.download-pdf', $invoice) }}" class="btn btn-sm btn-outline-primary">Generate PDF</a>
             <a href="{{ route('invoices.index') }}" class="btn btn-sm btn-outline-secondary">Back</a>
         </div>
     </div>
@@ -23,37 +24,59 @@
         <div class="alert alert-success">{{ session('status') }}</div>
     @endif
 
-    @if($invoice->status !== 'void')
-        <div class="card mb-3 border-danger">
-            <div class="card-body">
-                <h6 class="mb-2 text-danger">Void Invoice</h6>
-                <form method="POST" action="{{ route('invoices.void', $invoice) }}" class="row g-2" onsubmit="return confirm('Mark this invoice as void?');">
-                    @csrf
-                    <div class="col-md-9">
-                        <input type="text" class="form-control" name="void_reason" maxlength="500" placeholder="Reason (optional)">
-                    </div>
-                    <div class="col-md-3 d-grid">
-                        <button type="submit" class="btn btn-danger">Mark as Void</button>
-                    </div>
-                </form>
-            </div>
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="mb-2">Recipient</h6>
+            <form method="POST" action="{{ route('invoices.update-recipient', $invoice) }}" class="row g-2 align-items-end">
+                @csrf
+                <div class="col-md-8">
+                    <label class="form-label" for="recipient_email">Recipient Email</label>
+                    <input
+                        type="email"
+                        class="form-control"
+                        id="recipient_email"
+                        name="recipient_email"
+                        value="{{ old('recipient_email', $invoice->recipient_email ?: $defaultRecipientEmail ?: $invoice->client->email) }}"
+                        required
+                    >
+                    <small class="text-muted">Default from settings is used automatically, but you can override it here per invoice.</small>
+                </div>
+                <div class="col-md-2 d-grid">
+                    <button type="submit" class="btn btn-outline-primary">Update Recipient</button>
+                </div>
+            </form>
         </div>
+    </div>
 
+    @if($invoice->status !== 'void')
         <div class="card mb-3 border-primary">
             <div class="card-body">
-                <h6 class="mb-2 text-primary">Manual Status Update</h6>
-                <form method="POST" action="{{ route('invoices.mark-sent', $invoice) }}" class="row g-2">
+                <h6 class="mb-2 text-primary">Status Update</h6>
+                <form method="POST" action="{{ route('invoices.update-status', $invoice) }}" class="row g-2" id="singleStatusForm" onsubmit="return confirm('Apply status update to this invoice?');">
                     @csrf
-                    <div class="col-md-4">
-                        <label class="form-label" for="manual_sent_at">Sent At (optional)</label>
-                        <input type="datetime-local" class="form-control" id="manual_sent_at" name="manual_sent_at" value="{{ old('manual_sent_at') }}">
+                    <div class="col-md-3">
+                        <label class="form-label" for="status_target">Status</label>
+                        <select class="form-select" id="status_target" name="status_target" required>
+                            <option value="">Select status...</option>
+                            <option value="void">Void</option>
+                            <option value="sent">Sent</option>
+                            <option value="paid">Paid</option>
+                        </select>
                     </div>
-                    <div class="col-md-6">
-                        <label class="form-label" for="manual_note">Note (optional)</label>
-                        <input type="text" class="form-control" id="manual_note" name="manual_note" maxlength="500" placeholder="Sent manually outside system">
+                    <div class="col-md-3 d-none" id="status_datetime_wrap">
+                        <label class="form-label" for="status_datetime">Date & Time</label>
+                        <input type="datetime-local" class="form-control" id="status_datetime" name="status_datetime" value="{{ old('status_datetime') }}">
+                    </div>
+                    <div class="col-md-3 d-none" id="payment_method_wrap">
+                        <label class="form-label" for="payment_method">Payment Method</label>
+                        <input type="text" class="form-control" id="payment_method" name="payment_method" maxlength="100" placeholder="Bank transfer / cash / etc">
+                    </div>
+                    <div class="col-md-3" id="status_note_wrap">
+                        <label class="form-label" for="status_note" id="status_note_label">Reason / Note</label>
+                        <input type="text" class="form-control" id="status_note" name="status_note" maxlength="500" placeholder="Optional">
                     </div>
                     <div class="col-md-2 d-grid align-items-end">
-                        <button type="submit" class="btn btn-primary mt-md-4">Mark as Sent</button>
+                        <button type="submit" class="btn btn-primary mt-md-4">Apply</button>
                     </div>
                 </form>
             </div>
@@ -71,6 +94,7 @@
                 <p><strong>Paid:</strong> {{ optional($invoice->paid_at)->format('Y-m-d H:i:s') }}</p>
                 <p><strong>Stamping:</strong> {{ $invoice->stamping_status }}</p>
                 <p><strong>Stamped uploaded at:</strong> {{ optional($invoice->stamped_uploaded_at)->format('Y-m-d H:i:s') }}</p>
+                <p><strong>Recipient:</strong> {{ $invoice->recipient_email ?: $defaultRecipientEmail ?: $invoice->client->email }}</p>
             </div></div>
         </div>
         <div class="col-md-6">
@@ -81,6 +105,7 @@
                 @if(optional($invoice->paymentRecord)->payment_url)
                     <p><a href="{{ $invoice->paymentRecord->payment_url }}" target="_blank" rel="noopener">Open payment link</a></p>
                 @endif
+                <p><strong>Method:</strong> {{ data_get(optional($invoice->paymentRecord)->payload, 'manual_payment_method') }}</p>
             </div></div>
         </div>
     </div>
@@ -142,4 +167,41 @@
         </table>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const statusTarget = document.getElementById('status_target');
+    const datetimeWrap = document.getElementById('status_datetime_wrap');
+    const datetimeInput = document.getElementById('status_datetime');
+    const methodWrap = document.getElementById('payment_method_wrap');
+    const methodInput = document.getElementById('payment_method');
+    const noteLabel = document.getElementById('status_note_label');
+
+    if (!statusTarget) {
+        return;
+    }
+
+    statusTarget.addEventListener('change', function () {
+        const value = statusTarget.value;
+        const needsDatetime = value === 'sent' || value === 'paid';
+        const needsMethod = value === 'paid';
+
+        datetimeWrap.classList.toggle('d-none', !needsDatetime);
+        methodWrap.classList.toggle('d-none', !needsMethod);
+
+        datetimeInput.required = needsDatetime;
+        methodInput.required = needsMethod;
+
+        if (value === 'void') {
+            noteLabel.textContent = 'Reason';
+        } else if (value === 'sent') {
+            noteLabel.textContent = 'Note';
+        } else if (value === 'paid') {
+            noteLabel.textContent = 'Note (optional)';
+        } else {
+            noteLabel.textContent = 'Reason / Note';
+        }
+    });
+});
+</script>
 @endsection

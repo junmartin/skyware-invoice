@@ -47,6 +47,7 @@ class Invoice extends Model
         'stamped_uploaded_at',
         'stamped_uploaded_by',
         'email_sent',
+        'recipient_email',
         'email_send_mode_snapshot',
         'last_error',
     ];

@@ -14,8 +14,10 @@ use App\Services\InvoiceGenerationService;
 use App\Services\InvoiceStatusService;
 use App\Services\InvoiceSendingService;
 use App\Services\XenditService;
+use Illuminate\Support\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class InvoiceController extends Controller
 {
@@ -88,7 +90,9 @@ class InvoiceController extends Controller
     {
         $invoice->load(['client', 'billingCycle', 'details', 'paymentRecord', 'emailLogs', 'statusHistories.performer']);
 
-        return view('invoices.show', compact('invoice'));
+        $defaultRecipientEmail = trim((string) AppSetting::getValue('default_recipient_email', ''));
+
+        return view('invoices.show', compact('invoice', 'defaultRecipientEmail'));
     }
 
     public function createAdhoc()
@@ -129,6 +133,7 @@ class InvoiceController extends Controller
             $tax = 0;
             $total = $subtotal + $tax;
             $stampingRequired = $subtotal >= 5000000 || $addStampDuty;
+            $defaultRecipientEmail = trim((string) AppSetting::getValue('default_recipient_email', ''));
 
             $invoice = Invoice::query()->create([
                 'client_id' => $client->id,
@@ -146,6 +151,7 @@ class InvoiceController extends Controller
                 'stamping_status' => $stampingRequired ? 'pending' : 'not_required',
                 'generated_at' => now('Asia/Jakarta'),
                 'email_sent' => false,
+                'recipient_email' => $defaultRecipientEmail !== '' ? $defaultRecipientEmail : $client->email,
                 'email_send_mode_snapshot' => AppSetting::getValue('send_mode', 'manual'),
             ]);
 
@@ -297,7 +303,7 @@ class InvoiceController extends Controller
             EmailLog::query()->create([
                 'invoice_id' => $invoice->id,
                 'status' => 'sent',
-                'recipient' => $invoice->client->email,
+                'recipient' => $this->resolveRecipientEmail($invoice),
                 'subject' => 'Invoice '.$invoice->invoice_number,
                 'attachment_types' => [],
                 'attempted_at' => $sentAt,
@@ -328,6 +334,87 @@ class InvoiceController extends Controller
         $count = $service->sendReadyInvoices(auth()->id());
 
         return redirect()->route('invoices.index')->with('status', 'Sent ready invoices: '.$count);
+    }
+
+    public function updateStatus(Request $request, Invoice $invoice, InvoiceStatusService $statusService)
+    {
+        $validated = $request->validate([
+            'status_target' => 'required|in:void,sent,paid',
+            'status_note' => 'nullable|string|max:500',
+            'status_datetime' => 'nullable|date',
+            'payment_method' => 'nullable|string|max:100|required_if:status_target,paid',
+        ]);
+
+        if ($invoice->status === Invoice::STATUS_VOID && $validated['status_target'] !== Invoice::STATUS_VOID) {
+            return back()->withErrors(['invoice' => 'Void invoice cannot be updated to another status.']);
+        }
+
+        DB::transaction(function () use ($invoice, $validated, $statusService) {
+            $invoice->refresh();
+            $this->applyManualStatusUpdate($invoice, $validated, $statusService, false);
+        });
+
+        return redirect()->route('invoices.show', $invoice)->with('status', 'Invoice status updated.');
+    }
+
+    public function bulkUpdateStatus(Request $request, InvoiceStatusService $statusService)
+    {
+        $validated = $request->validate([
+            'invoice_ids' => 'required|array|min:1',
+            'invoice_ids.*' => 'integer|exists:invoices,id',
+            'status_target' => 'required|in:void,sent,paid',
+            'status_note' => 'nullable|string|max:500',
+            'status_datetime' => 'nullable|date',
+            'payment_method' => 'nullable|string|max:100|required_if:status_target,paid',
+        ]);
+
+        $updated = 0;
+        $skipped = 0;
+
+        DB::transaction(function () use ($validated, $statusService, &$updated, &$skipped) {
+            $invoices = Invoice::query()
+                ->whereIn('id', $validated['invoice_ids'])
+                ->with(['client', 'paymentRecord'])
+                ->get();
+
+            foreach ($invoices as $invoice) {
+                if ($invoice->status === Invoice::STATUS_VOID && $validated['status_target'] !== Invoice::STATUS_VOID) {
+                    $skipped++;
+                    continue;
+                }
+
+                $this->applyManualStatusUpdate($invoice, $validated, $statusService, true);
+                $updated++;
+            }
+        });
+
+        return redirect()->route('invoices.index')->with('status', sprintf('Bulk update completed: %d updated, %d skipped.', $updated, $skipped));
+    }
+
+    public function updateRecipient(Request $request, Invoice $invoice)
+    {
+        $validated = $request->validate([
+            'recipient_email' => 'required|email',
+        ]);
+
+        $invoice->recipient_email = $validated['recipient_email'];
+        $invoice->save();
+
+        return redirect()->route('invoices.show', $invoice)->with('status', 'Recipient updated.');
+    }
+
+    public function downloadPdf(Invoice $invoice, InvoicePdfService $pdfService)
+    {
+        if (! $invoice->generated_pdf_path || ! Storage::disk('local')->exists($invoice->generated_pdf_path)) {
+            $invoice->generated_pdf_path = $pdfService->generate($invoice);
+            $invoice->save();
+        }
+
+        return response()->download(
+            storage_path('app/'.$invoice->generated_pdf_path),
+            $invoice->invoice_number.'.pdf',
+            ['Content-Type' => 'application/pdf']
+        );
     }
 
     protected function buildAdhocInvoiceNumber(): string
@@ -378,5 +465,95 @@ class InvoiceController extends Controller
             'amount' => $invoice->total_amount,
             'payload' => is_array($xendit) ? $xendit : null,
         ]);
+    }
+
+    protected function applyManualStatusUpdate(Invoice $invoice, array $validated, InvoiceStatusService $statusService, bool $isBulk): void
+    {
+        $targetStatus = $validated['status_target'];
+        $rawNote = trim((string) ($validated['status_note'] ?? ''));
+        $statusAt = ! empty($validated['status_datetime'])
+            ? Carbon::parse($validated['status_datetime'], 'Asia/Jakarta')
+            : now('Asia/Jakarta');
+
+        if ($targetStatus === Invoice::STATUS_VOID) {
+            $historyNote = $rawNote !== '' ? 'Voided: '.$rawNote : ($isBulk ? 'Voided via bulk operation' : 'Voided manually');
+            $statusService->transition($invoice, Invoice::STATUS_VOID, $historyNote, auth()->id());
+
+            if ($invoice->paymentRecord) {
+                $invoice->paymentRecord->status = 'void';
+                $invoice->paymentRecord->save();
+            }
+
+            return;
+        }
+
+        if ($targetStatus === Invoice::STATUS_SENT) {
+            $invoice->email_sent = true;
+            $invoice->sent_at = $statusAt;
+            $invoice->last_error = null;
+            $invoice->save();
+
+            EmailLog::query()->create([
+                'invoice_id' => $invoice->id,
+                'status' => 'sent',
+                'recipient' => $this->resolveRecipientEmail($invoice),
+                'subject' => 'Invoice '.$invoice->invoice_number,
+                'attachment_types' => [],
+                'attempted_at' => $statusAt,
+                'sent_at' => $statusAt,
+                'error_message' => null,
+            ]);
+
+            $historyNote = $rawNote !== '' ? 'Marked as sent manually: '.$rawNote : 'Marked as sent manually';
+            $statusService->transition($invoice, Invoice::STATUS_SENT, $historyNote, auth()->id());
+
+            if ($invoice->paymentRecord && $invoice->paymentRecord->status !== 'paid') {
+                $invoice->paymentRecord->status = 'sent';
+                $invoice->paymentRecord->save();
+            }
+
+            return;
+        }
+
+        $invoice->paid_at = $statusAt;
+        $invoice->save();
+
+        $paymentMethod = trim((string) ($validated['payment_method'] ?? ''));
+        $historyNote = 'Marked as paid manually';
+        if ($paymentMethod !== '') {
+            $historyNote .= ' via '.$paymentMethod;
+        }
+        if ($rawNote !== '') {
+            $historyNote .= ': '.$rawNote;
+        }
+
+        $statusService->transition($invoice, Invoice::STATUS_PAID, $historyNote, auth()->id());
+
+        if ($invoice->paymentRecord) {
+            $payload = is_array($invoice->paymentRecord->payload) ? $invoice->paymentRecord->payload : [];
+            if ($paymentMethod !== '') {
+                $payload['manual_payment_method'] = $paymentMethod;
+            }
+
+            $invoice->paymentRecord->status = 'paid';
+            $invoice->paymentRecord->paid_at = $statusAt;
+            $invoice->paymentRecord->payload = $payload;
+            $invoice->paymentRecord->save();
+        }
+    }
+
+    protected function resolveRecipientEmail(Invoice $invoice): string
+    {
+        $recipient = trim((string) ($invoice->recipient_email ?? ''));
+        if ($recipient !== '') {
+            return $recipient;
+        }
+
+        $defaultRecipient = trim((string) AppSetting::getValue('default_recipient_email', ''));
+        if ($defaultRecipient !== '') {
+            return $defaultRecipient;
+        }
+
+        return (string) $invoice->client->email;
     }
 }

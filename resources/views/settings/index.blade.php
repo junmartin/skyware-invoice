@@ -15,6 +15,10 @@
                     <option value="manual" @if($sendMode === 'manual') selected @endif>Manual-send (wait command)</option>
                 </select>
             </div>
+            <div class="col-md-4">
+                <label class="form-label">Default Recipient Email</label>
+                <input type="email" name="default_recipient_email" class="form-control" value="{{ old('default_recipient_email', $defaultRecipientEmail) }}" placeholder="billing@example.com">
+            </div>
             <div class="col-md-2"><button class="btn btn-primary">Save</button></div>
         </form>
     </div></div>

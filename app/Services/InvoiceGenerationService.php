@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Client;
+use App\Models\AppSetting;
 use App\Models\Invoice;
 use App\Models\InvoiceDetail;
 use App\Models\PaymentRecord;
@@ -36,6 +37,8 @@ class InvoiceGenerationService
         Client::query()->where('is_active', true)->chunkById(100, function ($clients) use ($cycle, &$created, $performedBy) {
             foreach ($clients as $client) {
                 DB::transaction(function () use ($client, $cycle, &$created, $performedBy) {
+                    $defaultRecipientEmail = trim((string) AppSetting::getValue('default_recipient_email', ''));
+
                     $invoice = Invoice::query()->firstOrCreate(
                         [
                             'client_id'        => $client->id,
@@ -48,6 +51,7 @@ class InvoiceGenerationService
                             'currency'       => $client->currency,
                             'issue_date'     => now('Asia/Jakarta')->toDateString(),
                             'due_date'       => now('Asia/Jakarta')->addDays((int) $client->default_due_days)->toDateString(),
+                            'recipient_email' => $defaultRecipientEmail !== '' ? $defaultRecipientEmail : $client->email,
                         ]
                     );
 

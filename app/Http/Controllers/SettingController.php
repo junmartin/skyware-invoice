@@ -16,17 +16,20 @@ class SettingController extends Controller
     public function index()
     {
         $sendMode = AppSetting::getValue('send_mode', 'manual');
+        $defaultRecipientEmail = AppSetting::getValue('default_recipient_email', '');
 
-        return view('settings.index', compact('sendMode'));
+        return view('settings.index', compact('sendMode', 'defaultRecipientEmail'));
     }
 
     public function update(Request $request)
     {
         $data = $request->validate([
             'send_mode' => 'required|in:auto,manual',
+            'default_recipient_email' => 'nullable|email',
         ]);
 
         AppSetting::setValue('send_mode', $data['send_mode']);
+        AppSetting::setValue('default_recipient_email', $data['default_recipient_email'] ?? null);
 
         return redirect()->route('settings.index')->with('status', 'Settings updated');
     }

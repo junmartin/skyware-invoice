@@ -105,6 +105,7 @@ class InvoiceController extends Controller
             $tax = 0;
             $total = $subtotal + $tax;
             $stampingRequired = $subtotal >= 5000000 || $addStampDuty;
+            $defaultRecipientEmail = trim((string) AppSetting::getValue('default_recipient_email', ''));
 
             $invoice = Invoice::query()->create([
                 'client_id' => $client->id,
@@ -122,6 +123,7 @@ class InvoiceController extends Controller
                 'stamping_status' => $stampingRequired ? 'pending' : 'not_required',
                 'generated_at' => now('Asia/Jakarta'),
                 'email_sent' => false,
+                'recipient_email' => $defaultRecipientEmail !== '' ? $defaultRecipientEmail : $client->email,
                 'email_send_mode_snapshot' => AppSetting::getValue('send_mode', 'manual'),
             ]);
 

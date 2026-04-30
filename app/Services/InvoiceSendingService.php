@@ -74,17 +74,19 @@ class InvoiceSendingService
                 ];
             }
 
+            $recipient = $this->resolveRecipientEmail($invoice);
+
             $emailLog = EmailLog::query()->create([
                 'invoice_id' => $invoice->id,
                 'status' => 'attempted',
-                'recipient' => $invoice->client->email,
+                'recipient' => $recipient,
                 'subject' => 'Invoice '.$invoice->invoice_number,
                 'attachment_types' => array_column($attachments, 'type'),
                 'attempted_at' => now('Asia/Jakarta'),
             ]);
 
             try {
-                Mail::to($invoice->client->email)->send(new InvoiceReadyMail($invoice, $attachments));
+                Mail::to($recipient)->send(new InvoiceReadyMail($invoice, $attachments));
 
                 $invoice->email_sent = true;
                 $invoice->sent_at = now('Asia/Jakarta');
@@ -150,5 +152,20 @@ class InvoiceSendingService
         $matches = glob($pattern);
 
         return $matches ? $matches[0] : null;
+    }
+
+    protected function resolveRecipientEmail(Invoice $invoice): string
+    {
+        $recipient = trim((string) ($invoice->recipient_email ?? ''));
+        if ($recipient !== '') {
+            return $recipient;
+        }
+
+        $defaultRecipient = trim((string) \App\Models\AppSetting::getValue('default_recipient_email', ''));
+        if ($defaultRecipient !== '') {
+            return $defaultRecipient;
+        }
+
+        return (string) $invoice->client->email;
     }
 }

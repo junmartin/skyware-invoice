@@ -39,6 +39,7 @@ class InvoiceResource extends JsonResource
             'stamped_pdf_path' => $this->stamped_pdf_path,
             'stamped_uploaded_at' => $this->stamped_uploaded_at,
             'email_sent' => $this->email_sent,
+            'recipient_email' => $this->recipient_email,
             'email_send_mode_snapshot' => $this->email_send_mode_snapshot,
             'last_error' => $this->last_error,
             'details' => InvoiceDetailResource::collection($this->whenLoaded('details')),

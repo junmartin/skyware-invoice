@@ -37,6 +37,10 @@ Route::middleware('auth')->group(function () {
     Route::post('/invoices/{invoice}/confirm-draft', [InvoiceController::class, 'confirmAdhocDraft'])->name('invoices.confirm-draft');
     Route::post('/invoices/{invoice}/mark-sent', [InvoiceController::class, 'markAsSent'])->name('invoices.mark-sent');
     Route::post('/invoices/{invoice}/void', [InvoiceController::class, 'voidInvoice'])->name('invoices.void');
+    Route::post('/invoices/{invoice}/update-status', [InvoiceController::class, 'updateStatus'])->name('invoices.update-status');
+    Route::post('/invoices/bulk-update-status', [InvoiceController::class, 'bulkUpdateStatus'])->name('invoices.bulk-update-status');
+    Route::post('/invoices/{invoice}/recipient', [InvoiceController::class, 'updateRecipient'])->name('invoices.update-recipient');
+    Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'downloadPdf'])->name('invoices.download-pdf');
     Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices.index');
     Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');
 
